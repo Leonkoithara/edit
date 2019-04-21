@@ -1,2 +1,2 @@
 tex.out: tex.c
-	$(CC) tex.c -o tex.out -Wall -Wextra -pedantic -std=c99
+	$(CC) tex.c -o edit -Wall -Wextra -pedantic -std=c99 -g
