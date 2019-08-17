@@ -10,6 +10,11 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define ABUF_INIT {NULL, 0}
 
+#define ARROW_UP write(STDIN_FILENO, "\x1b[A", 4)
+#define ARROW_DOWN write(STDIN_FILENO, "\x1b[B", 4)
+#define ARROW_RIGHT write(STDIN_FILENO, "\x1b[C", 4)
+#define ARROW_LEFT write(STDIN_FILENO, "\x1b[D", 4)
+
 /*--------data-------------*/
 struct editorConfig
 {
@@ -153,6 +158,38 @@ void editorProcessKeyPress()
 			write(STDIN_FILENO, "\x1b[2J", 4);
 			write(STDIN_FILENO, "\x1b[H", 3);
 			exit(0);
+			break;
+		case CTRL_KEY('k'):
+			if(E.cy > 0)
+			{
+				E.cy--;
+				ARROW_UP;
+			}
+			break;
+		case CTRL_KEY('j'):
+			if(E.cy < E.screencols-1)
+			{
+				E.cy++;
+				ARROW_DOWN;
+			}
+			break;
+		case CTRL_KEY('h'):
+			if(E.cx > 0)
+			{
+				E.cx--;
+				ARROW_LEFT;
+			}
+			break;
+		case CTRL_KEY('l'):
+			if(E.cx < E.screenrows-1)
+			{
+				E.cx++;
+				ARROW_RIGHT;
+			}
+			break;
+		default:
+			E.cx++;
+			write(STDIN_FILENO, &c, 1);
 			break;
 	}
 }
