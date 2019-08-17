@@ -13,6 +13,8 @@
 /*--------data-------------*/
 struct editorConfig
 {
+	int cx;
+	int cy;
 	int screenrows;
 	int screencols;
 	struct termios orig_termios;
@@ -37,6 +39,11 @@ void AbufAppend(struct abuf *buf, const char *s, int length)
 	memcpy(&new_str[buf->len], s, length);
 	buf->b = new_str;
 	buf->len += length;
+}
+
+void AbufFree(struct abuf *buf)
+{
+	free(buf->b);
 }
 
 /*--------terminal---------*/
@@ -105,26 +112,33 @@ int getWindowSize(int *row, int *col)
 
 /*-----------output----------*/
 
-void editorDrawRows()
+void editorDrawRows(struct abuf *ab)
 {
 	int y;
 
 	for(y = 0;y < E.screencols;y++)
 	{
-		write(STDIN_FILENO, "~", 1);
+		AbufAppend(ab, "~", 1);
 
 		if(y < E.screencols-1)
-			write(STDIN_FILENO, "\r\n", 2);
+			AbufAppend(ab, "\r\n", 2);
 	}
 }
 
 void editorRefreshScreen()
 {
-	write(STDIN_FILENO, "\x1b[2J", 4);
-	write(STDIN_FILENO, "\x1b[H", 3);
+	struct abuf ab = ABUF_INIT;
 
-	editorDrawRows();
-	write(STDIN_FILENO, "\x1b[H", 3);
+	AbufAppend(&ab, "\x1b[?25l", 6);
+	AbufAppend(&ab, "\x1b[2J", 4);
+	AbufAppend(&ab, "\x1b[H", 3);
+
+	editorDrawRows(&ab);
+	AbufAppend(&ab, "\x1b[H", 3);
+
+	AbufAppend(&ab, "\x1b[?25h", 6);
+	write(STDIN_FILENO, ab.b, ab.len);
+	AbufFree(&ab);
 }
 
 /*-----------input----------*/
@@ -149,15 +163,19 @@ void initEditor()
 {
 	if(getWindowSize(&E.screenrows, &E.screencols) == -1)
 		die("getWindowSize");
+
+	E.cx = 0;
+	E.cy = 0;
 }
 int main()  
 {
 	enableRawMode();
 	initEditor();
 
+	editorRefreshScreen();
+
 	while(1)
 	{
-		editorRefreshScreen();
 		editorProcessKeyPress();
 	}
 	return 0;
