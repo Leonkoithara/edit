@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -16,10 +18,16 @@
 #define ARROW_LEFT write(STDIN_FILENO, "\x1b[D", 4)
 
 /*--------data-------------*/
+FILE *file;
+
 struct editorConfig
 {
 	int cx;
 	int cy;
+	int curr_row;
+	int writtenrows;
+	struct abuf *curr_buff;
+	int rowsreserved;
 	int screenrows;
 	int screencols;
 	struct termios orig_termios;
@@ -115,7 +123,50 @@ int getWindowSize(int *row, int *col)
 	return 0;
 }
 
+/*-----------file i/o----------*/
+void openfile(char *filename)
+{
+	file = fopen(filename, "r");
+
+	char *line = NULL;
+	size_t linelen = 0;
+
+	if(!file)
+		die("fopen");
+
+	int n = getline(&line, &linelen, file);
+
+	while(n != -1 && E.writtenrows <= E.screenrows-1)
+	{
+		if(E.writtenrows == E.rowsreserved-1)
+		{
+			E.rowsreserved *= 2;
+			E.curr_buff = (struct abuf*)realloc(E.curr_buff, E.rowsreserved * sizeof(struct abuf));
+		}
+
+		if(E.writtenrows == E.screenrows-1)
+			n--;
+
+		AbufAppend(&E.curr_buff[E.writtenrows], "\x1b[K", 3);
+		AbufAppend(&E.curr_buff[E.writtenrows], line, n);
+		AbufAppend(&E.curr_buff[E.writtenrows], "\r", 1);
+		write(STDIN_FILENO, E.curr_buff[E.writtenrows].b, E.curr_buff[E.writtenrows].len);
+		E.writtenrows++;
+		n = getline(&line, &linelen, file);
+	}
+
+	if(E.writtenrows < E.screenrows-1)
+		E.cy = E.writtenrows;
+	else
+		E.cy = E.screenrows-1;
+
+}
+
 /*-----------output----------*/
+void editorScroll()
+{
+
+}
 
 void editorDrawRows(struct abuf *ab)
 {
@@ -165,13 +216,15 @@ void editorProcessKeyPress()
 				E.cy--;
 				ARROW_UP;
 			}
+
 			break;
 		case CTRL_KEY('j'):
-			if(E.cy < E.screencols-1)
+			if(E.cy < E.screenrows-1)
 			{
 				E.cy++;
 				ARROW_DOWN;
 			}
+			 
 			break;
 		case CTRL_KEY('h'):
 			if(E.cx > 0)
@@ -179,13 +232,15 @@ void editorProcessKeyPress()
 				E.cx--;
 				ARROW_LEFT;
 			}
+ 
 			break;
 		case CTRL_KEY('l'):
-			if(E.cx < E.screenrows-1)
+			if(E.cx < E.screencols-1)
 			{
 				E.cx++;
 				ARROW_RIGHT;
 			}
+ 
 			break;
 		default:
 			E.cx++;
@@ -203,13 +258,21 @@ void initEditor()
 
 	E.cx = 0;
 	E.cy = 0;
+	E.curr_row = 0;
+	E.writtenrows = 0;
+	E.rowsreserved = 10;
+
+	E.curr_buff = (struct abuf*)malloc(E.rowsreserved * sizeof(struct abuf));
 }
-int main()  
+int main(int argc, char *argv[])  
 {
 	enableRawMode();
 	initEditor();
 
 	editorRefreshScreen();
+
+	if(argc > 1)
+		openfile(argv[1]);
 
 	while(1)
 	{
