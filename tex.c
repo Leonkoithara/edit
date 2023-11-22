@@ -245,7 +245,7 @@ void editorProcessKeyPress()
             }
             break;
         case CTRL_KEY('j'):
-            if (E.y < E.screenrows)
+            if (E.y < E.screenrows && E.y < E.content_rows-1)
             {
                 ARROW_DOWN;
                 E.y++;
