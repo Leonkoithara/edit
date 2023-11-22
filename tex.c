@@ -119,6 +119,7 @@ void open_file()
             nl++;
         abuf_append(&E.active_screen_content[E.content_rows-1], &buff[i], nl-i);
         write(STDIN_FILENO, &buff[i], nl-i);
+        E.x += nl-i;
         if (buff[nl] == '\n')
             new_line();
         i = nl+1;
@@ -236,11 +237,24 @@ void editorProcessKeyPress()
             {
                 ARROW_UP;
                 E.y--;
+                while (E.x > E.active_screen_content[E.y].len)
+                {
+                    E.x--;
+                    ARROW_LEFT;
+                }
             }
             break;
         case CTRL_KEY('j'):
-            ARROW_DOWN;
-            E.y++;
+            if (E.y < E.screenrows)
+            {
+                ARROW_DOWN;
+                E.y++;
+                while (E.x > E.active_screen_content[E.y].len)
+                {
+                    E.x--;
+                    ARROW_LEFT;
+                }
+            }
             break;
         case CTRL_KEY('h'):
             if (E.x != 0)
@@ -250,8 +264,11 @@ void editorProcessKeyPress()
             }
             break;
         case CTRL_KEY('l'):
-            ARROW_RIGHT;
-            E.x++;
+            if (E.x < E.active_screen_content[E.y].len)
+            {
+                ARROW_RIGHT;
+                E.x++;
+            }
             break;
         case '\r':
             E.active_screen_content_dirty = 1;
