@@ -79,7 +79,7 @@ void new_line()
     write(STDIN_FILENO, "\n\r", 2);
     abuf_append(&E.active_screen_content[E.content_rows-1], "\n", 1);
     if (E.content_rows >= E.content_alloc_rows)
-	{
+    {
         E.content_alloc_rows *= 2;
         E.active_screen_content = (abuf*)realloc(E.active_screen_content, E.content_alloc_rows*sizeof(abuf));
         memset(&E.active_screen_content[E.content_rows], 0, (E.content_alloc_rows-E.content_rows)*sizeof(abuf));
@@ -93,7 +93,7 @@ void write_file()
     int fd = open(E.active_screen_filename, O_RDWR | O_CREAT, 0664);
     abuf *b = E.active_screen_content;
     for (int i=0; i<E.content_rows; i++)
-	{
+    {
         write(fd, b->b, b->len);
         b++;
     }
@@ -113,7 +113,7 @@ void open_file()
     read(fd, buff, size);
 
     for (int i=0; i<size;)
-	{
+    {
         int nl = i;
         while(buff[nl] != '\n' && nl<size)
             nl++;
