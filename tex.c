@@ -77,7 +77,6 @@ void new_line()
     E.x = 0;
     E.y++;
     write(STDIN_FILENO, "\n\r", 2);
-    abuf_append(&E.active_screen_content[E.content_rows-1], "\n", 1);
     if (E.content_rows >= E.content_alloc_rows)
     {
         E.content_alloc_rows *= 2;
@@ -95,6 +94,7 @@ void write_file()
     for (int i=0; i<E.content_rows; i++)
     {
         write(fd, b->b, b->len);
+        write(fd, "\n", 1);
         b++;
     }
     close(fd);
