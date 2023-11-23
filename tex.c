@@ -77,7 +77,6 @@ void new_line()
     E.x = 0;
     E.y++;
     write(STDIN_FILENO, "\n\r", 2);
-    abuf_append(&E.active_screen_content[E.content_rows-1], "\n", 1);
     if (E.content_rows >= E.content_alloc_rows)
     {
         E.content_alloc_rows *= 2;
@@ -95,6 +94,7 @@ void write_file()
     for (int i=0; i<E.content_rows; i++)
     {
         write(fd, b->b, b->len);
+        write(fd, "\n", 1);
         b++;
     }
     close(fd);
@@ -119,6 +119,7 @@ void open_file()
             nl++;
         abuf_append(&E.active_screen_content[E.content_rows-1], &buff[i], nl-i);
         write(STDIN_FILENO, &buff[i], nl-i);
+        E.x += nl-i;
         if (buff[nl] == '\n')
             new_line();
         i = nl+1;
@@ -206,7 +207,7 @@ void editorDrawRows()
     }
 }
 
-void editorRefreshScreen()
+void editorDrawFreshScreen()
 {
     write(STDIN_FILENO, "\x1b[2J", 4);
     write(STDIN_FILENO, "\x1b[H", 3);
@@ -235,23 +236,83 @@ void editorProcessKeyPress()
             if (E.y != 0)
             {
                 ARROW_UP;
-                E.y--;
+                if (E.active_screen_content[E.y].len > E.screencols)
+                {
+                    if (E.x > E.screencols)
+                        E.x -= E.screencols;
+                    else
+                        E.y--;
+                }
+                else
+                {
+                    E.y--;
+                    if (E.active_screen_content[E.y].len > E.screencols)
+                        E.x += (E.active_screen_content[E.y].len / E.screencols) * E.screencols;
+                }
+
+                while (E.x > E.active_screen_content[E.y].len)
+                {
+                    E.x--;
+                    ARROW_LEFT;
+                }
             }
             break;
         case CTRL_KEY('j'):
-            ARROW_DOWN;
-            E.y++;
+            if (E.y < E.screenrows && E.y < E.content_rows-1)
+            {
+                ARROW_DOWN;
+                if (E.active_screen_content[E.y].len > E.screencols)
+                {
+                    if (E.x+E.screencols < (E.active_screen_content[E.y].len/E.screencols+1)*E.screencols)
+                        E.x += E.screencols;
+                    else
+                    {
+                        while(E.x > E.screencols)
+                            E.x -= E.screencols;
+                        E.y++;
+                    }
+                }
+                else
+                {
+                    E.y++;
+                }
+
+                while (E.x > E.active_screen_content[E.y].len)
+                {
+                    E.x--;
+                    ARROW_LEFT;
+                }
+            }
             break;
         case CTRL_KEY('h'):
             if (E.x != 0)
             {
-                ARROW_LEFT;
+                if (E.active_screen_content[E.y].len > E.screencols && E.x == (E.x/E.screencols)*E.screencols)
+                {
+                    ARROW_UP;
+                    for (int i=0; i<E.screencols; i++)
+                        ARROW_RIGHT;
+                }
+                else
+                    ARROW_LEFT;
+
                 E.x--;
             }
             break;
         case CTRL_KEY('l'):
-            ARROW_RIGHT;
-            E.x++;
+            if (E.x < E.active_screen_content[E.y].len)
+            {
+                if (E.active_screen_content[E.y].len > E.screencols && E.x == (E.x/E.screencols+1)*E.screencols-1)
+                {
+                    ARROW_DOWN;
+                    for (int i=0; i<((E.x+1)/E.screencols)*E.screencols; i++)
+                        ARROW_LEFT;
+                }
+                else
+                    ARROW_RIGHT;
+
+                E.x++;
+            }
             break;
         case '\r':
             E.active_screen_content_dirty = 1;
@@ -292,7 +353,7 @@ int main(int argc, char *argv[])
     else
         strcpy(E.active_screen_filename, "/tmp/editfile");
 
-    editorRefreshScreen();
+    editorDrawFreshScreen();
     open_file();
 
     while(1)
