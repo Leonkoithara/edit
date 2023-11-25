@@ -43,6 +43,8 @@ struct editorConfig
 {
     int x;
     int y;
+    int cur_y;
+    int first_row;
     int screenrows;
     int screencols;
     abuf *active_screen_content;
@@ -54,6 +56,11 @@ struct editorConfig
 };
 struct editorConfig E;
 
+
+void scroll_screen(int direction)
+{
+    printf("Scroll in %d direction", direction);
+}
 
 /*--------abuf---------*/
 void abuf_append(abuf *buf, char *s, int length)
@@ -72,10 +79,12 @@ void abuf_append(abuf *buf, char *s, int length)
     memcpy(&buf->b[buf->len], s, length);
     buf->len += length;
 }
+
 void new_line()
 {
     E.x = 0;
     E.y++;
+    write(STDIN_FILENO, "\x1b[K", 4);
     write(STDIN_FILENO, "\n\r", 2);
     if (E.content_rows >= E.content_alloc_rows)
     {
@@ -84,6 +93,20 @@ void new_line()
         memset(&E.active_screen_content[E.content_rows], 0, (E.content_alloc_rows-E.content_rows)*sizeof(abuf));
     }
     E.content_rows++;
+}
+
+void insert_char(char c)
+{
+    if (E.x >= E.active_screen_content[E.y].len)
+        abuf_append(&E.active_screen_content[E.y], &c, 1);
+    else
+        E.active_screen_content[E.y].b[E.x] = c;
+
+    E.x++;
+    if (E.x%E.screencols == 0)
+        E.cur_y++;
+
+    write(STDIN_FILENO, &c, 1);
 }
 
 /*--------fileops----------*/
@@ -104,6 +127,7 @@ void open_file()
 {
     char *buff;
 
+    E.cur_y = -1;                                                                    // If file has only 1 line it gets incremented to 0
     int fd = open(E.active_screen_filename, O_RDONLY);
 
     off_t size = lseek(fd, 0, SEEK_END);
@@ -118,12 +142,20 @@ void open_file()
         while(buff[nl] != '\n' && nl<size)
             nl++;
         abuf_append(&E.active_screen_content[E.content_rows-1], &buff[i], nl-i);
-        write(STDIN_FILENO, &buff[i], nl-i);
-        E.x += nl-i;
-        if (buff[nl] == '\n')
-            new_line();
+        E.cur_y += (nl - i) / E.screencols + 1;
+        if (E.cur_y < E.screenrows-1)
+        {
+            write(STDIN_FILENO, &buff[i], nl-i);
+            E.x += nl-i;
+            if (buff[nl] == '\n')
+                new_line();
+        }
         i = nl+1;
     }
+    E.x = 0;
+    E.y = 0;
+    E.cur_y = 0;
+    write(STDIN_FILENO, "\x1b[H", 3);
 
     close(fd);
 }
@@ -161,6 +193,20 @@ void enableRawMode()
     raw.c_cc[VTIME] = 1;
 
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+void editor_update_status_bar()
+{
+    char bottom[5], status_bar[20];
+    sprintf(bottom, "\x1b[%dB", E.screenrows);
+    sprintf(status_bar, "(%d, (%d, %d))", E.x, E.y, E.cur_y);
+
+    write(STDIN_FILENO, "\x1b[s", 3);
+    write(STDIN_FILENO, "\x1b[H", 3);
+    write(STDIN_FILENO, bottom, 5);
+    write(STDIN_FILENO, "\x1b[K", 4);
+    write(STDIN_FILENO, status_bar, strlen(status_bar));
+    write(STDIN_FILENO, "\x1b[u", 3);
 }
 
 char editorReadKey()
@@ -230,12 +276,14 @@ void editorProcessKeyPress()
 
             write(STDIN_FILENO, "\x1b[2J", 4);
             write(STDIN_FILENO, "\x1b[H", 3);
+            printf("%d", E.cur_y);
             exit(0);
             break;
         case CTRL_KEY('k'):
-            if (E.y != 0)
+            if (E.cur_y != 0)
             {
                 ARROW_UP;
+                E.cur_y--;
                 if (E.active_screen_content[E.y].len > E.screencols)
                 {
                     if (E.x > E.screencols)
@@ -261,6 +309,7 @@ void editorProcessKeyPress()
             if (E.y < E.screenrows && E.y < E.content_rows-1)
             {
                 ARROW_DOWN;
+                E.cur_y++;
                 if (E.active_screen_content[E.y].len > E.screencols)
                 {
                     if (E.x+E.screencols < (E.active_screen_content[E.y].len/E.screencols+1)*E.screencols)
@@ -289,6 +338,7 @@ void editorProcessKeyPress()
             {
                 if (E.active_screen_content[E.y].len > E.screencols && E.x == (E.x/E.screencols)*E.screencols)
                 {
+                    E.cur_y--;
                     ARROW_UP;
                     for (int i=0; i<E.screencols; i++)
                         ARROW_RIGHT;
@@ -304,6 +354,7 @@ void editorProcessKeyPress()
             {
                 if (E.active_screen_content[E.y].len > E.screencols && E.x == (E.x/E.screencols+1)*E.screencols-1)
                 {
+                    E.cur_y++;
                     ARROW_DOWN;
                     for (int i=0; i<((E.x+1)/E.screencols)*E.screencols; i++)
                         ARROW_LEFT;
@@ -316,13 +367,12 @@ void editorProcessKeyPress()
             break;
         case '\r':
             E.active_screen_content_dirty = 1;
+            E.cur_y++;
             new_line();
             break;
         default:
-            E.x++;
             E.active_screen_content_dirty = 1;
-            abuf_append(&E.active_screen_content[E.content_rows-1], &c, 1);
-            write(STDIN_FILENO, &c, 1);
+            insert_char(c);
             break;
     }
 }
@@ -339,6 +389,8 @@ void initEditor()
     E.active_screen_content = init;
     E.x = 0;
     E.y = 0;
+    E.first_row = 0;
+    E.cur_y = 0;
     E.content_rows = 1;
     E.content_alloc_rows = 1;
     E.active_screen_content_dirty = 0;
@@ -358,6 +410,7 @@ int main(int argc, char *argv[])
 
     while(1)
     {
+        editor_update_status_bar();
         editorProcessKeyPress();
     }
     return 0;
