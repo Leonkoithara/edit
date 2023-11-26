@@ -286,7 +286,7 @@ void editorProcessKeyPress()
                 E.cur_y--;
                 if (E.active_screen_content[E.y].len > E.screencols)
                 {
-                    if (E.x > E.screencols)
+                    if (E.x >= E.screencols)
                         E.x -= E.screencols;
                     else
                         E.y--;
@@ -316,7 +316,7 @@ void editorProcessKeyPress()
                         E.x += E.screencols;
                     else
                     {
-                        while(E.x > E.screencols)
+                        while(E.x >= E.screencols)
                             E.x -= E.screencols;
                         E.y++;
                     }
@@ -384,9 +384,8 @@ void initEditor()
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
         die("getWindowSize");
 
-    abuf *init = (abuf*)malloc(sizeof(abuf));
-    *init = (abuf) ABUF_INIT;
-    E.active_screen_content = init;
+    E.active_screen_content = (abuf*)malloc(sizeof(abuf));
+    *E.active_screen_content = (abuf) ABUF_INIT;
     E.x = 0;
     E.y = 0;
     E.first_row = 0;
