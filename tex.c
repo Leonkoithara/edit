@@ -43,6 +43,8 @@ struct editorConfig
 {
     int x;
     int y;
+    int cur_y;
+    int first_row;
     int screenrows;
     int screencols;
     abuf *active_screen_content;
@@ -72,10 +74,12 @@ void abuf_append(abuf *buf, char *s, int length)
     memcpy(&buf->b[buf->len], s, length);
     buf->len += length;
 }
+
 void new_line()
 {
     E.x = 0;
     E.y++;
+    write(STDIN_FILENO, "\x1b[K", 4);
     write(STDIN_FILENO, "\n\r", 2);
     if (E.content_rows >= E.content_alloc_rows)
     {
@@ -83,7 +87,64 @@ void new_line()
         E.active_screen_content = (abuf*)realloc(E.active_screen_content, E.content_alloc_rows*sizeof(abuf));
         memset(&E.active_screen_content[E.content_rows], 0, (E.content_alloc_rows-E.content_rows)*sizeof(abuf));
     }
-    E.content_rows++;
+}
+
+void scroll_screen()
+{
+    if (E.cur_y == 0 && E.y > 0)
+    {
+        E.first_row = E.y - E.screenrows + 5;
+        if (E.first_row < 0)
+            E.first_row = 0;
+    }
+    else if(E.cur_y == E.screenrows-2)
+        E.first_row = E.y - 5;
+
+    abuf *b;
+    E.y = E.first_row;
+    E.cur_y = 0;
+    write(STDIN_FILENO, "\x1b[2J", 4);
+    write(STDIN_FILENO, "\x1b[H", 3);
+    while(1)
+    {
+        b = &E.active_screen_content[E.y];
+        if(E.cur_y + b->len/E.screencols+1 < E.screenrows)
+        {
+            write(STDIN_FILENO, b->b, b->len);
+            new_line();
+            E.cur_y += b->len/E.screencols+1;
+        }
+        else if (E.cur_y < E.screenrows)
+        {
+            int i=0;
+            while (E.cur_y < E.screenrows)
+            {
+                write(STDIN_FILENO, (b->b)+i, E.screencols);
+                i+=E.screencols;
+                E.cur_y++;
+            }
+            break;
+        }
+        else
+            break;
+    }
+    E.y = E.first_row;
+    E.cur_y = 0;
+    write(STDIN_FILENO, "\x1b[H", 3);
+}
+
+void insert_char(char c)
+{
+    if (E.x >= E.active_screen_content[E.y].len)
+        abuf_append(&E.active_screen_content[E.y], &c, 1);
+    else
+        E.active_screen_content[E.y].b[E.x] = c;
+
+    E.x++;
+    if (E.x%E.screencols == 0)
+        E.cur_y++;
+
+    write(STDIN_FILENO, &c, 1);
 }
 
 /*--------fileops----------*/
@@ -104,6 +165,8 @@ void open_file()
 {
     char *buff;
 
+    E.content_rows = 0;
+    E.cur_y = -1;                                                                    // If file has only 1 line it gets incremented to 0
     int fd = open(E.active_screen_filename, O_RDONLY);
 
     off_t size = lseek(fd, 0, SEEK_END);
@@ -117,13 +180,32 @@ void open_file()
         int nl = i;
         while(buff[nl] != '\n' && nl<size)
             nl++;
+        E.content_rows++;
         abuf_append(&E.active_screen_content[E.content_rows-1], &buff[i], nl-i);
-        write(STDIN_FILENO, &buff[i], nl-i);
-        E.x += nl-i;
-        if (buff[nl] == '\n')
-            new_line();
+        if (E.cur_y + (nl - i) / E.screencols + 1 < E.screenrows-1)
+        {
+            E.cur_y += (nl - i) / E.screencols + 1;
+            write(STDIN_FILENO, &buff[i], nl-i);
+            E.x += nl-i;
+            if (buff[nl] == '\n')
+                new_line();
+        }
+        else if (E.cur_y < E.screenrows - 1)
+        {
+            int j = 0;
+            while (E.cur_y < E.screenrows - 1)
+            {
+                write(STDIN_FILENO, &buff[i+j], E.screenrows);
+                j+=E.screenrows;
+                E.cur_y++;
+            }
+        }
         i = nl+1;
     }
+    E.x = 0;
+    E.y = 0;
+    E.cur_y = 0;
+    write(STDIN_FILENO, "\x1b[H", 3);
 
     close(fd);
 }
@@ -161,6 +243,20 @@ void enableRawMode()
     raw.c_cc[VTIME] = 1;
 
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+void editor_update_status_bar()
+{
+    char bottom[5], status_bar[20];
+    sprintf(bottom, "\x1b[%dB", E.screenrows);
+    sprintf(status_bar, "(%d, (%d, %d))", E.x, E.y, E.cur_y);
+
+    write(STDIN_FILENO, "\x1b[s", 3);
+    write(STDIN_FILENO, "\x1b[H", 3);
+    write(STDIN_FILENO, bottom, 5);
+    write(STDIN_FILENO, "\x1b[K", 4);
+    write(STDIN_FILENO, status_bar, strlen(status_bar));
+    write(STDIN_FILENO, "\x1b[u", 3);
 }
 
 char editorReadKey()
@@ -230,15 +326,17 @@ void editorProcessKeyPress()
 
             write(STDIN_FILENO, "\x1b[2J", 4);
             write(STDIN_FILENO, "\x1b[H", 3);
+            printf("%d", E.cur_y);
             exit(0);
             break;
         case CTRL_KEY('k'):
-            if (E.y != 0)
+            if (E.cur_y != 0)
             {
                 ARROW_UP;
+                E.cur_y--;
                 if (E.active_screen_content[E.y].len > E.screencols)
                 {
-                    if (E.x > E.screencols)
+                    if (E.x >= E.screencols)
                         E.x -= E.screencols;
                     else
                         E.y--;
@@ -256,18 +354,21 @@ void editorProcessKeyPress()
                     ARROW_LEFT;
                 }
             }
+            else if (E.y != 0)
+                scroll_screen();
             break;
         case CTRL_KEY('j'):
-            if (E.y < E.screenrows && E.y < E.content_rows-1)
+            if (E.cur_y < E.screenrows-2 && (E.y < E.content_rows-1 || E.x < (E.active_screen_content[E.y].len/E.screencols+1)*E.screencols))
             {
                 ARROW_DOWN;
+                E.cur_y++;
                 if (E.active_screen_content[E.y].len > E.screencols)
                 {
                     if (E.x+E.screencols < (E.active_screen_content[E.y].len/E.screencols+1)*E.screencols)
                         E.x += E.screencols;
                     else
                     {
-                        while(E.x > E.screencols)
+                        while(E.x >= E.screencols)
                             E.x -= E.screencols;
                         E.y++;
                     }
@@ -283,12 +384,15 @@ void editorProcessKeyPress()
                     ARROW_LEFT;
                 }
             }
+            else if(E.cur_y >= E.screenrows-2)
+                scroll_screen();
             break;
         case CTRL_KEY('h'):
             if (E.x != 0)
             {
                 if (E.active_screen_content[E.y].len > E.screencols && E.x == (E.x/E.screencols)*E.screencols)
                 {
+                    E.cur_y--;
                     ARROW_UP;
                     for (int i=0; i<E.screencols; i++)
                         ARROW_RIGHT;
@@ -304,6 +408,7 @@ void editorProcessKeyPress()
             {
                 if (E.active_screen_content[E.y].len > E.screencols && E.x == (E.x/E.screencols+1)*E.screencols-1)
                 {
+                    E.cur_y++;
                     ARROW_DOWN;
                     for (int i=0; i<((E.x+1)/E.screencols)*E.screencols; i++)
                         ARROW_LEFT;
@@ -316,13 +421,13 @@ void editorProcessKeyPress()
             break;
         case '\r':
             E.active_screen_content_dirty = 1;
+            E.cur_y++;
+            E.content_rows++;
             new_line();
             break;
         default:
-            E.x++;
             E.active_screen_content_dirty = 1;
-            abuf_append(&E.active_screen_content[E.content_rows-1], &c, 1);
-            write(STDIN_FILENO, &c, 1);
+            insert_char(c);
             break;
     }
 }
@@ -334,11 +439,12 @@ void initEditor()
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
         die("getWindowSize");
 
-    abuf *init = (abuf*)malloc(sizeof(abuf));
-    *init = (abuf) ABUF_INIT;
-    E.active_screen_content = init;
+    E.active_screen_content = (abuf*)malloc(sizeof(abuf));
+    *E.active_screen_content = (abuf) ABUF_INIT;
     E.x = 0;
     E.y = 0;
+    E.first_row = 0;
+    E.cur_y = 0;
     E.content_rows = 1;
     E.content_alloc_rows = 1;
     E.active_screen_content_dirty = 0;
@@ -358,6 +464,7 @@ int main(int argc, char *argv[])
 
     while(1)
     {
+        editor_update_status_bar();
         editorProcessKeyPress();
     }
     return 0;
