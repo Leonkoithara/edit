@@ -205,6 +205,8 @@ void open_file()
     E.x = 0;
     E.y = 0;
     E.cur_y = 0;
+    if (E.content_rows == 0)
+        E.content_rows = 1;
     write(STDIN_FILENO, "\x1b[H", 3);
 
     close(fd);
@@ -464,7 +466,6 @@ int main(int argc, char *argv[])
 
     while(1)
     {
-        editor_update_status_bar();
         editorProcessKeyPress();
     }
     return 0;
