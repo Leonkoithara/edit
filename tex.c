@@ -75,18 +75,23 @@ void abuf_append(abuf *buf, char *s, int length)
     buf->len += length;
 }
 
-void new_line()
+void abuf_alloc_lines()
 {
-    E.x = 0;
-    E.y++;
-    write(STDIN_FILENO, "\x1b[K", 4);
-    write(STDIN_FILENO, "\n\r", 2);
     if (E.content_rows >= E.content_alloc_rows)
     {
         E.content_alloc_rows *= 2;
         E.active_screen_content = (abuf*)realloc(E.active_screen_content, E.content_alloc_rows*sizeof(abuf));
         memset(&E.active_screen_content[E.content_rows], 0, (E.content_alloc_rows-E.content_rows)*sizeof(abuf));
     }
+}
+
+void new_line()
+{
+    E.x = 0;
+    E.y++;
+    write(STDIN_FILENO, "\x1b[K", 4);
+    write(STDIN_FILENO, "\n\r", 2);
+    abuf_alloc_lines();
 }
 
 void scroll_screen()
@@ -200,6 +205,8 @@ void open_file()
                 E.cur_y++;
             }
         }
+        else
+            abuf_alloc_lines();
         i = nl+1;
     }
     E.x = 0;
